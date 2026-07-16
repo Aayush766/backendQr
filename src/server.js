@@ -67,26 +67,68 @@ const genCouponCode=()=>'SQR'+crypto.randomBytes(3).toString('hex').toUpperCase(
    We derive the subdomain the browser is actually on from the Origin/Referer header (can't be spoofed by
    editing a request body the way a plain form field could), and fall back to an explicit `subdomain` field
    in the request body only for local/dev setups that don't have wildcard DNS configured. */
-const ROOT_DOMAIN=(process.env.ROOT_DOMAIN||'').toLowerCase();
-function extractSubdomain(hostname){
-  if(!hostname)return null;
-  hostname=hostname.split(':')[0].toLowerCase();
-  if(ROOT_DOMAIN&&(hostname===ROOT_DOMAIN||hostname==='www.'+ROOT_DOMAIN))return null;
-  if(ROOT_DOMAIN&&hostname.endsWith('.'+ROOT_DOMAIN)){
-    const rest=hostname.slice(0,-(ROOT_DOMAIN.length+1));
-    if(!rest||rest==='www')return null;
-    const parts=rest.split('.');return parts[parts.length-1];
+const ROOT_DOMAIN = (process.env.ROOT_DOMAIN || '').toLowerCase();
+const IS_NETLIFY = ROOT_DOMAIN.endsWith('.netlify.app');
+function extractSubdomain(hostname) {
+  if (!hostname) return null;
+
+  hostname = hostname.split(':')[0].toLowerCase();
+
+  // Localhost
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return null;
   }
-  if(hostname==='localhost'||hostname==='127.0.0.1')return null;
-  if(hostname.endsWith('.localhost')){const sub=hostname.slice(0,-'.localhost'.length);return sub&&sub!=='www'?sub:null}
-  const parts=hostname.split('.');
-  if(parts.length>2)return parts[0];
+
+  if (hostname.endsWith('.localhost')) {
+    const sub = hostname.replace('.localhost', '');
+    return sub && sub !== 'www' ? sub : null;
+  }
+
+  // Netlify
+  if (IS_NETLIFY) {
+    return null;
+  }
+
+  // Production
+  if (ROOT_DOMAIN) {
+    if (hostname === ROOT_DOMAIN || hostname === `www.${ROOT_DOMAIN}`) {
+      return null;
+    }
+
+    if (hostname.endsWith(`.${ROOT_DOMAIN}`)) {
+      const rest = hostname.slice(
+        0,
+        -(ROOT_DOMAIN.length + 1)
+      );
+
+      if (!rest || rest === 'www') return null;
+
+      return rest.split('.').pop();
+    }
+  }
+
   return null;
 }
-function resolveSubdomain(q){
-  const origin=q.headers.origin||q.headers.referer;
-  if(origin){try{const sub=extractSubdomain(new URL(origin).hostname);if(sub)return sub}catch{}}
-  if(q.body?.subdomain)return String(q.body.subdomain).trim().toLowerCase();
+function resolveSubdomain(req) {
+  const origin = req.headers.origin || req.headers.referer;
+
+  if (origin) {
+    try {
+      const sub = extractSubdomain(new URL(origin).hostname);
+
+      if (sub) return sub;
+    } catch {}
+  }
+
+  // Netlify / localhost fallback
+  if (req.query.subdomain) {
+    return String(req.query.subdomain).trim().toLowerCase();
+  }
+
+  if (req.body?.subdomain) {
+    return String(req.body.subdomain).trim().toLowerCase();
+  }
+
   return null;
 }
 
